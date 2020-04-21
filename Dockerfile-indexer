@@ -1,0 +1,46 @@
+LABEL maintainer="Denys Berkovskyy <berkovskyy@gmail.com>"
+
+# see hooks/build and hooks/.config
+ARG BASE_IMAGE_PREFIX
+FROM ${BASE_IMAGE_PREFIX}debian:buster
+
+# see hooks/post_checkout
+ARG ARCH
+COPY qemu-${ARCH}-static /usr/bin
+
+RUN uname -ar > /uname.build
+
+# Install packages required to add recoll repository
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg \
+&& rm -rf /var/lib/apt/lists/*
+
+# Add recoll repository and install recoll
+RUN echo 'deb http://www.lesbonscomptes.com/recoll/debian/ buster main' | tee /etc/apt/sources.list.d/recoll.list \
+&& /bin/bash -c "set -o pipefail && curl -fsSL https://www.lesbonscomptes.com/pages/jf-at-dockes.org.pgp | apt-key add -" \
+&& apt-get update && apt-get install -y \
+   recoll \
+&& rm -rf /var/lib/apt/lists/*
+
+# Set recoll configuration directory to "/conf/"
+ENV RECOLL_CONFDIR /conf/
+
+# Create directories which will be used by recoll:
+# * $RECOLL_CONFDIR for recoll's configuration
+# * /data for files to be indexed
+# * /cache for xapian database and any other recoll runtime data
+RUN mkdir -p $RECOLL_CONFDIR /data /cache 
+
+# Modify default recoll's settings
+# * set top dir to "/data"
+# * set runtime data directory to "/cache/"
+# * do not skip any directories during indexing (in case user decides to mount docker volumes there)
+RUN sed -i \
+        -e "s/^topdirs = .*/topdirs = \/data\//" \
+        -e "s/^#cachedir = .*/cachedir = \/cache\//" \
+        -e "/^skippedPaths = .*/d" \        
+        "/usr/share/recoll/examples/recoll.conf"
+
+ENTRYPOINT ["recollindex"]
+CMD ["-m", "-w", "0", "-D", "-x"]
